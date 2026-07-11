@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import os
-from dataclasses import asdict
+from urllib.parse import urlsplit
 
 import httpx
 from watch_contract import BaseCrawler, Item, CrawlerException
@@ -9,9 +9,15 @@ from watch_contract import BaseCrawler, Item, CrawlerException
 logger = logging.getLogger(__name__)
 
 _API_KEY = os.environ.get("YOUTUBE_API_KEY", "")
-_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
+_PLAYLIST_ITEMS_URL = "https://www.googleapis.com/youtube/v3/playlistItems"
 _SHORTS_URL = "https://www.youtube.com/shorts/{vid}"
 _MAX_RESULTS = 5
+
+
+def _uploads_playlist_id(channel_id: str) -> str:
+    # 채널의 업로드 재생목록 ID는 채널 ID의 "UC" 접두사를 "UU"로 바꾼 값과 같다(YouTube 규약).
+    # playlistItems.list는 search.list보다 100배 싸고(1 unit vs 100 unit) 인덱스 지연도 없다.
+    return "UU" + channel_id[2:] if channel_id.startswith("UC") else channel_id
 
 
 async def _is_short(client: httpx.AsyncClient, video_id: str) -> bool:
@@ -31,22 +37,20 @@ class YtChannelsCrawler(BaseCrawler):
     async def crawl(self, channel_id: str) -> list[Item]:
         params = {
             "part": "snippet",
-            "channelId": channel_id,
-            "type": "video",
-            "order": "date",
+            "playlistId": _uploads_playlist_id(channel_id),
             "maxResults": _MAX_RESULTS,
             "key": _API_KEY,
         }
         try:
             async with httpx.AsyncClient(timeout=30) as client:
-                res = await client.get(_SEARCH_URL, params=params)
+                res = await client.get(_PLAYLIST_ITEMS_URL, params=params)
                 res.raise_for_status()
                 data = res.json()
 
                 items = []
                 for entry in data.get("items", []):
-                    vid = entry["id"]["videoId"]
                     snippet = entry["snippet"]
+                    vid = snippet["resourceId"]["videoId"]
                     url = f"https://www.youtube.com/watch?v={vid}"
                     items.append(Item(
                         id=vid,
@@ -68,6 +72,11 @@ class YtChannelsCrawler(BaseCrawler):
                 channel_id, len(longforms), len(items) - len(longforms),
             )
             return longforms
+        except httpx.HTTPStatusError as e:
+            host = urlsplit(str(e.request.url)).netloc
+            msg = f"{host} 응답 {e.response.status_code}"
+            logger.error("crawl 예외: channel=%s, %s (key 포함 전체 URL은 debug 로그 생략)", channel_id, msg)
+            raise CrawlerException(msg) from e
         except Exception as e:
             logger.error("crawl 예외: channel=%s, %s", channel_id, e)
             raise CrawlerException(str(e)) from e

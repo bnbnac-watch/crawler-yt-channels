@@ -1,6 +1,8 @@
 # crawler-yt-channels
 
-YouTube 채널의 신규 영상을 감시하는 크롤러. `BaseCrawler` 구현 — HTML 파싱이 아니라 YouTube Data API v3(`search.list`)를 직접 호출한다. JS 렌더링이 필요 없으므로 `watch-playwright`를 거치지 않는다. 컨테이너 하나로 여러 채널을 처리한다(채널 추가는 `crawlers.params.channel_id` INSERT만으로 가능).
+YouTube 채널의 신규 영상을 감시하는 크롤러. `BaseCrawler` 구현 — HTML 파싱이 아니라 YouTube Data API v3(`playlistItems.list`)를 직접 호출한다. JS 렌더링이 필요 없으므로 `watch-playwright`를 거치지 않는다. 컨테이너 하나로 여러 채널을 처리한다(채널 추가는 `crawlers.params.channel_id` INSERT만으로 가능).
+
+채널의 "업로드" 재생목록(채널 ID의 `UC` 접두사를 `UU`로 바꾼 ID)을 직접 조회한다. `search.list`(100 units/호출)보다 `playlistItems.list`(1 unit/호출)가 100배 싸고 검색 인덱스 반영 지연도 없다 — 5분 폴링 채널이 하루 쿼터(10,000 units)를 search.list로 소진해 429가 발생한 적이 있어 교체함.
 
 ## API
 
@@ -10,7 +12,7 @@ YouTube 채널의 신규 영상을 감시하는 크롤러. `BaseCrawler` 구현 
 {"channel_id": "UCxxxxxxxx"}
 ```
 
-`channel_id` 필수 — 없으면 400. 채널의 최신 영상 5개(`maxResults=5`, `order=date`)를 조회한다.
+`channel_id` 필수 — 없으면 400. 채널의 최신 영상 5개(`maxResults=5`)를 조회한다.
 
 응답: `Item[]` — `data`에 `channel_title`, `published_at`, `thumbnail` 포함
 
